@@ -10,7 +10,6 @@ const path = require("path");
 const axios = require("axios");
 const { pdf } = require("pdf-to-img");
 const Tesseract = require("tesseract.js");
-const sharp = require('sharp');
 
 const app = express();
 app.use(cors());
@@ -86,7 +85,6 @@ function auth(req, res, next) {
   }
 }
 
-// --- Upload PDF + OCR + AI Parse dengan pdf-to-img ---
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     const originalExt = path.extname(req.file.originalname) || ".pdf";
@@ -95,26 +93,18 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
     console.log("PDF uploaded:", pdfPath);
 
-    // Convert PDF dengan scale tinggi
     const document = await pdf(pdfPath, { scale: 5 });
 
     let allOcrText = "";
     let pageNum = 1;
 
     for await (const imageBuffer of document) {
-      console.log(`Processing page ${pageNum}...`);
+      console.log(`Processing page ${pageNum} with OCR...`);
 
-      // Preprocessing image untuk OCR lebih akurat
-      const processedBuffer = await sharp(imageBuffer)
-        .grayscale()
-        .normalise()
-        .sharpen()
-        .toBuffer();
-
-      // OCR dengan Tesseract
+      // Tesseract OCR dari buffer image
       const {
         data: { text },
-      } = await Tesseract.recognize(processedBuffer, "eng", {
+      } = await Tesseract.recognize(imageBuffer, "eng", {
         logger: (m) => console.log(`Page ${pageNum}:`, m.status),
       });
 
@@ -122,9 +112,8 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       pageNum++;
     }
 
-    console.log("OCR completed. Text length:", allOcrText.length);
+    console.log("OCR completed. Total text length:", allOcrText.length);
 
-    // Prompt dengan instruksi koreksi OCR error
     const prompt = `
 Kamu adalah AI yang ahli dalam mengekstrak data dari dokumen PDF form.
 Berikut adalah hasil OCR dari PDF form "Proof of Sustainability (PoS) for CORSIA Eligible Fuels":
@@ -135,22 +124,31 @@ Tugas kamu:
 1. Identifikasi semua field name (label) dan value (isi input) dari teks OCR ini.
 2. PENTING: Ekstrak field SESUAI URUTAN dari atas ke bawah seperti di dokumen asli.
 3. Gunakan field name PERSIS seperti di dokumen (jangan diubah atau disingkat).
-4. **KOREKSI OCR ERROR**: 
-   - Jika ada nama yang terpotong atau salah baca, koreksi ke yang paling masuk akal
-   - Jika "SCC" kemungkinan adalah "ISCC", koreksi ke "ISCC"
-   - Untuk checkbox: Baca konteks dari field. Jika field menyebut "PLUS" tapi tidak ada centang, value adalah "No"
-5. Return dalam format JSON ARRAY dengan urutan yang sama seperti di dokumen.
+4. Return dalam format JSON ARRAY dengan urutan yang sama seperti di dokumen.
 
-Format output: JSON ARRAY
+Format output yang diinginkan (ARRAY):
 [
-  { "field": "...", "value": "..." }
+  {
+    "field": "Unique Number of Sustainability Declaration / Batch ID number",
+    "value": "..."
+  },
+  {
+    "field": "Place and date of dispatch",
+    "value": "..."
+  },
+  {
+    "field": "Date of Issuance",
+    "value": "..."
+  }
 ]
 
 PENTING:
-- Untuk checkbox: centang/X/Yes → "Yes", kosong → "No"
-- Koreksi OCR typo yang jelas (SCC→ISCC, lllinois→Illinois, dst)
+- Return JSON ARRAY (bukan object).
+- Urutan field harus SAMA PERSIS dengan urutan di dokumen (dari atas ke bawah).
+- Jangan skip field kosong, tetap masukkan dengan value "".
+- Untuk checkbox, cek jika ada tanda centang/X atau kata "Yes", berikan "Yes", jika tidak "No".
 
-Berikan HANYA JSON array yang valid.
+Berikan HANYA JSON array yang valid, tanpa penjelasan tambahan.
     `.trim();
 
     const perplexityKey = process.env.AI_API_KEY;
@@ -162,7 +160,7 @@ Berikan HANYA JSON array yang valid.
           {
             role: "system",
             content:
-              "You are a precise data extraction assistant with OCR error correction capability. Preserve original field names and order. Return valid JSON array only.",
+              "You are a precise data extraction assistant. Always preserve original field names and exact order from documents. Return valid JSON array only.",
           },
           {
             role: "user",
@@ -194,15 +192,6 @@ Berikan HANYA JSON array yang valid.
         throw new Error("AI tidak mengembalikan JSON array valid");
       }
     }
-
-    // Post-processing: koreksi common OCR errors
-    extractedArray = extractedArray.map(item => {
-      let correctedValue = item.value;
-      correctedValue = correctedValue.replace(/\bSCC\b/g, 'ISCC');
-      correctedValue = correctedValue.replace(/lllinois/g, 'Illinois');
-      
-      return { ...item, value: correctedValue };
-    });
 
     const orderedData = {};
     extractedArray.forEach((item) => {

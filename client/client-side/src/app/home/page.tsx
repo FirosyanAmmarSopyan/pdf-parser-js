@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
- import { useState, useRef, DragEvent, ChangeEvent } from 'react';
-import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { useAuth } from '@/contexts/AuthContext';
+import { useState, useRef, DragEvent, ChangeEvent } from "react";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { useAuth } from "@/contexts/AuthContext";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 interface ParsedField {
-  title: string;
+  field: string;
   value: string;
 }
 
@@ -17,18 +17,18 @@ function HomeContent() {
   const { user, logout, token } = useAuth();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [parsedData, setParsedData] = useState<ParsedData | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (file: File) => {
-    if (file.type !== 'application/pdf') {
-      setError('Hanya file PDF yang diizinkan');
+    if (file.type !== "application/pdf") {
+      setError("Hanya file PDF yang diizinkan");
       return;
     }
     setSelectedFile(file);
-    setError('');
+    setError("");
     setParsedData(null);
   };
 
@@ -60,36 +60,46 @@ function HomeContent() {
 
   const handleUpload = async () => {
     if (!selectedFile || !token) {
-      setError('File tidak dipilih atau Anda belum login');
+      setError("File tidak dipilih atau Anda belum login");
       return;
     }
 
     setIsUploading(true);
-    setError('');
+    setError("");
     setParsedData(null);
 
     try {
       const formData = new FormData();
-      formData.append('pdf', selectedFile);
+      formData.append("file", selectedFile);
 
       const response = await fetch(`${API_URL}/upload`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: formData,
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || errorData.detail || 'Upload failed');
+        throw new Error(errorData.error || errorData.detail || "Upload failed");
       }
 
       const data = await response.json();
-      setParsedData(data.tableData);
+
+      if (!data.success) {
+        throw new Error(data.error || "Upload failed");
+      }
+
+      // Gunakan dataArray dari response server
+      if (data.dataArray && Array.isArray(data.dataArray)) {
+        setParsedData(data.dataArray);
+      } else {
+        throw new Error("Format data tidak valid");
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal mengupload file');
-      console.error('Upload error:', err);
+      setError(err instanceof Error ? err.message : "Gagal mengupload file");
+      console.error("Upload error:", err);
     } finally {
       setIsUploading(false);
     }
@@ -98,9 +108,9 @@ function HomeContent() {
   const handleClear = () => {
     setSelectedFile(null);
     setParsedData(null);
-    setError('');
+    setError("");
     if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      fileInputRef.current.value = "";
     }
   };
 
@@ -114,7 +124,10 @@ function HomeContent() {
             </h1>
             <div className="flex items-center gap-4">
               <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                Welcome, <span className="font-medium text-black dark:text-zinc-50">{user?.username}</span>
+                Welcome,{" "}
+                <span className="font-medium text-black dark:text-zinc-50">
+                  {user?.username}
+                </span>
               </span>
               <button
                 onClick={logout}
@@ -134,7 +147,7 @@ function HomeContent() {
             <h2 className="text-2xl font-bold text-black dark:text-zinc-50 mb-6">
               Upload PDF File
             </h2>
-            
+
             {/* Drag and Drop Area */}
             <div
               onDragOver={handleDragOver}
@@ -142,8 +155,8 @@ function HomeContent() {
               onDrop={handleDrop}
               className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
                 isDragging
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                  : 'border-zinc-300 dark:border-zinc-700 hover:border-blue-400'
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                  : "border-zinc-300 dark:border-zinc-700 hover:border-blue-400"
               }`}
             >
               {selectedFile ? (
@@ -177,7 +190,7 @@ function HomeContent() {
                       disabled={isUploading}
                       className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {isUploading ? 'Uploading...' : 'Upload & Parse'}
+                      {isUploading ? "Uploading..." : "Upload & Parse"}
                     </button>
                     <button
                       onClick={handleClear}
@@ -232,10 +245,27 @@ function HomeContent() {
 
             {error && (
               <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-md">
-                <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  {error}
+                </p>
               </div>
             )}
           </div>
+
+          {/* Loading Section */}
+          {isUploading && !parsedData && (
+            <div className="bg-white dark:bg-zinc-900 rounded-lg shadow p-8">
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+                <p className="text-lg font-medium text-black dark:text-zinc-50">
+                  Memproses PDF...
+                </p>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2">
+                  Mohon tunggu, sedang memparse data dari file PDF
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Results Section */}
           {parsedData && (
@@ -256,13 +286,16 @@ function HomeContent() {
                     </tr>
                   </thead>
                   <tbody className="bg-white dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-700">
-                    {parsedData.map((field, index) => (
-                      <tr key={index} className="hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                    {parsedData.map((item, index) => (
+                      <tr
+                        key={index}
+                        className="hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                      >
                         <td className="px-4 py-4 text-sm font-medium text-zinc-900 dark:text-zinc-100 break-words">
-                          {field.title}
+                          {item.field}
                         </td>
                         <td className="px-4 py-4 text-sm text-zinc-600 dark:text-zinc-400 break-words">
-                          {field.value || '-'}
+                          {item.value || "-"}
                         </td>
                       </tr>
                     ))}
@@ -284,4 +317,3 @@ export default function HomePage() {
     </ProtectedRoute>
   );
 }
-
